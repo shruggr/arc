@@ -4,9 +4,26 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/bitcoin-sv/arc/internal/blocktx/blocktx_api"
 	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/bitcoin-sv/arc/internal/blocktx/blocktx_api"
 )
+
+func WithFillGaps(enabled bool, pm PeerManager, interval time.Duration) func(*Processor) {
+	return func(p *Processor) {
+		p.fillGapsInterval = interval
+		p.pm = pm
+		p.peerIndex.Store(0)
+		p.fillGapsEnabled = enabled
+	}
+}
+
+func WithUnorphanRecentWrongOrphans(enabled bool, interval time.Duration) func(*Processor) {
+	return func(p *Processor) {
+		p.unorphanRecentWrongOrphansEnabled = enabled
+		p.unorphanRecentWrongOrphansInterval = interval
+	}
+}
 
 func WithTransactionBatchSize(size int) func(*Processor) {
 	return func(p *Processor) {

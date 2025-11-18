@@ -40,17 +40,24 @@ var (
 )
 
 const (
-	transactionStoringBatchsizeDefault = 10000
-	maxRequestBlocks                   = 10
-	maxBlocksInProgress                = 1
-	registerTxsIntervalDefault         = time.Second * 10
-	registerRequestTxsIntervalDefault  = time.Second * 5
-	registerTxsBatchSizeDefault        = 100
-	waitForBlockProcessing             = 5 * time.Minute
-	parallellism                       = 5
-	publishMinedMessageSizeDefault     = 256
-	topic                              = "topic: %s"
+	transactionStoringBatchsizeDefault        = 10000
+	maxRequestBlocks                          = 10
+	maxBlocksInProgress                       = 1
+	registerTxsIntervalDefault                = time.Second * 10
+	registerRequestTxsIntervalDefault         = time.Second * 5
+	registerTxsBatchSizeDefault               = 100
+	waitForBlockProcessing                    = 5 * time.Minute
+	parallellism                              = 5
+	publishMinedMessageSizeDefault            = 256
+	topic                                     = "topic: %s"
+	unorphanRecentWrongOrphansIntervalDefault = 5 * time.Minute
+	fillGapsIntervalDefault                   = 15 * time.Minute
 )
+
+type BlockGap struct {
+	Hash   *chainhash.Hash
+	Height uint64
+}
 
 type Processor struct {
 	hostname                    string
@@ -74,6 +81,15 @@ type Processor struct {
 	now                        func() time.Time
 	maxBlockProcessingDuration time.Duration
 
+	fillGapsInterval time.Duration
+	fillGapsEnabled  bool
+	blockGapsMap     sync.Map
+	peerIndex        atomic.Int64
+	pm               PeerManager
+
+	unorphanRecentWrongOrphansInterval time.Duration
+	unorphanRecentWrongOrphansEnabled  bool
+
 	wg        *sync.WaitGroup
 	cancelAll context.CancelFunc
 	ctx       context.Context
@@ -92,19 +108,35 @@ func NewProcessor(
 	}
 
 	p := &Processor{
-		store:                       storeI,
-		logger:                      logger.With(slog.String("module", "processor")),
+		hostname:                    hostname,
 		blockRequestCh:              blockRequestCh,
 		blockProcessCh:              blockProcessCh,
+		store:                       storeI,
+		logger:                      logger.With(slog.String("module", "processor")),
 		transactionStorageBatchSize: transactionStoringBatchsizeDefault,
+		dataRetentionDays:           0,
+		registerTxsChan:             nil,
+		minedTxsChan:                nil,
 		registerTxsInterval:         registerTxsIntervalDefault,
 		registerRequestTxsInterval:  registerRequestTxsIntervalDefault,
 		registerTxsBatchSize:        registerTxsBatchSizeDefault,
-		maxBlockProcessingDuration:  waitForBlockProcessing,
-		hostname:                    hostname,
-		publishMinedMessageSize:     publishMinedMessageSizeDefault,
-		now:                         time.Now,
-		wg:                          &sync.WaitGroup{},
+		tracingEnabled:              false,
+		tracingAttributes:           nil,
+
+		incomingIsLongest:       false,
+		publishMinedMessageSize: publishMinedMessageSizeDefault,
+
+		now:                        time.Now,
+		maxBlockProcessingDuration: waitForBlockProcessing,
+
+		fillGapsInterval: fillGapsIntervalDefault,
+		fillGapsEnabled:  false,
+		blockGapsMap:     sync.Map{},
+
+		unorphanRecentWrongOrphansInterval: unorphanRecentWrongOrphansIntervalDefault,
+		unorphanRecentWrongOrphansEnabled:  false,
+
+		wg: &sync.WaitGroup{},
 	}
 
 	for _, opt := range opts {
@@ -122,6 +154,14 @@ func (p *Processor) Start() error {
 	p.StartBlockRequesting()
 	p.StartBlockProcessing()
 	p.StartProcessRegisterTxs()
+
+	if p.fillGapsEnabled {
+		p.StartRoutine(p.fillGapsInterval, FillGaps)
+	}
+
+	if p.unorphanRecentWrongOrphansEnabled {
+		p.StartRoutine(p.unorphanRecentWrongOrphansInterval, UnorphanRecentWrongOrphans)
+	}
 
 	return nil
 }
@@ -1036,6 +1076,54 @@ func getBlockTransactionsWithMerklePath(txs []store.BlockTransaction) map[string
 		blockTxsMap[hex.EncodeToString(tx.BlockHash)] = append(blockTxsMap[hex.EncodeToString(tx.BlockHash)], blockTransactionWithMerklePath)
 	}
 	return blockTxsMap
+}
+
+func (p *Processor) StartRoutine(tickerInterval time.Duration, routine func(*Processor) error) {
+	ticker := time.NewTicker(tickerInterval)
+
+	p.wg.Go(func() {
+		defer func() {
+			ticker.Stop()
+		}()
+
+		for {
+			select {
+			case <-p.ctx.Done():
+				return
+			case <-ticker.C:
+				err := routine(p)
+				if err != nil {
+					p.logger.Error("Failed to run routine", slog.String("err", err.Error()))
+				}
+			}
+		}
+	})
+}
+
+func (p *Processor) GetBlockGaps() []*BlockGap {
+	gaps := make([]*BlockGap, 0)
+
+	p.blockGapsMap.Range(func(key, value interface{}) bool {
+		hash, ok := key.(*chainhash.Hash)
+		if !ok {
+			return true
+		}
+
+		height, ok := value.(uint64)
+		if !ok {
+			return true
+		}
+
+		blockGap := &BlockGap{
+			Hash:   hash,
+			Height: height,
+		}
+
+		gaps = append(gaps, blockGap)
+		return true
+	})
+
+	return gaps
 }
 
 func (p *Processor) Shutdown() {
