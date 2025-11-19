@@ -1,4 +1,4 @@
-package message_queue
+package blocktx
 
 import (
 	"errors"
@@ -6,11 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bitcoin-sv/arc/internal/blocktx/blocktx_api"
 	mqMocks "github.com/bitcoin-sv/arc/internal/mq/mocks"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
-func TestPublishAdapter_StartPublishCore(t *testing.T) {
+func TestPublishAdapter_StartPublishMarshal(t *testing.T) {
 	tt := []struct {
 		name         string
 		topic        string
@@ -47,9 +49,10 @@ func TestPublishAdapter_StartPublishCore(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// Create mock MQ client
 			mqClient := &mqMocks.MessageQueueClientMock{
-				PublishCoreFunc: func(_ string, _ []byte) error {
+				PublishMarshalCoreFunc: func(_ string, _ proto.Message) error {
 					return tc.publishError
 				},
 			}
@@ -58,15 +61,15 @@ func TestPublishAdapter_StartPublishCore(t *testing.T) {
 			logger := slog.Default()
 
 			// Create PublishAdapter
-			adapter := NewPublishCoreAdapter(mqClient, logger)
-
+			adapter := NewPublishAdapter(mqClient, logger)
+			minedTxsChan := make(chan *blocktx_api.TransactionBlocks, 10)
 			// Start the publish worker
-			adapter.StartPublishCore(tc.topic)
+			adapter.StartPublishMarshal(tc.topic, minedTxsChan)
 
 			// Publish test messages
 			for i := 0; i < tc.messageCount; i++ {
 				// Create a test proto message (using timestamppb as an example)
-				adapter.PublishCore([]byte("test-message"))
+				minedTxsChan <- &blocktx_api.TransactionBlocks{}
 			}
 
 			// Give some time for messages to be processed
@@ -74,7 +77,7 @@ func TestPublishAdapter_StartPublishCore(t *testing.T) {
 
 			// Shutdown the adapter
 			adapter.Shutdown()
-			require.Equal(t, tc.expectedPublished, len(mqClient.PublishCoreCalls()))
+			require.Equal(t, tc.expectedPublished, len(mqClient.PublishMarshalCoreCalls()))
 		})
 	}
 }

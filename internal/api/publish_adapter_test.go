@@ -1,4 +1,4 @@
-package message_queue
+package api
 
 import (
 	"context"
@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bitcoin-sv/arc/internal/metamorph/metamorph_api"
 	mqMocks "github.com/bitcoin-sv/arc/internal/mq/mocks"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestPublishAdapter_StartPublishMarshal(t *testing.T) {
@@ -63,15 +63,14 @@ func TestPublishAdapter_StartPublishMarshal(t *testing.T) {
 
 			// Create PublishAdapter
 			adapter := NewPublishAdapter(mqClient, logger)
-
+			queuedTxsChan := make(chan *metamorph_api.PostTransactionRequest, 10)
 			// Start the publish worker
-			adapter.StartPublishMarshal(tc.topic)
+			adapter.StartPublishMarshal(tc.topic, queuedTxsChan)
 
 			// Publish test messages
 			for i := 0; i < tc.messageCount; i++ {
 				// Create a test proto message (using timestamppb as an example)
-				msg := timestamppb.Now()
-				adapter.Publish(msg)
+				queuedTxsChan <- &metamorph_api.PostTransactionRequest{}
 			}
 
 			// Give some time for messages to be processed

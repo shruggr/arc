@@ -343,8 +343,6 @@ func (p *Processor) processTransactions(txHashes [][]byte) error {
 		return fmt.Errorf("failed to publish mined transactions: %v", err)
 	}
 
-	p.logger.Info("published mined txs", slog.Int("hashes", len(minedTxsIncludingMP)))
-
 	return nil
 }
 
@@ -946,6 +944,7 @@ func (p *Processor) publishMinedTxs(ctx context.Context, txs []store.BlockTransa
 			if p.minedTxsChan != nil {
 				select {
 				case p.minedTxsChan <- msg:
+					p.logger.Info("Published mined txs", slog.Int("count", len(msg.TransactionBlocks)))
 				default:
 					p.logger.Warn("Failed to send message on mined txs channel")
 				}
@@ -963,6 +962,7 @@ func (p *Processor) publishMinedTxs(ctx context.Context, txs []store.BlockTransa
 		if p.minedTxsChan != nil {
 			select {
 			case p.minedTxsChan <- msg:
+				p.logger.Info("Published mined txs", slog.Int("count", len(msg.TransactionBlocks)))
 			default:
 				p.logger.Warn("Failed to send message on mined txs channel")
 			}
