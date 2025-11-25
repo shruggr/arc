@@ -15,6 +15,8 @@ import (
 	chaincfg "github.com/bsv-blockchain/go-sdk/transaction/chaincfg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/bitcoin-sv/arc/internal/broadcaster"
 	"github.com/bitcoin-sv/arc/internal/broadcaster/mocks"
@@ -141,7 +143,7 @@ func TestRateBroadcasterInitialize(t *testing.T) {
 				ticker,
 				broadcaster.WithBatchSize(tc.batchSize),
 				broadcaster.WithIsTestnet(false),
-				broadcaster.WithCallback("callbackURL", "callbackToken", false),
+				broadcaster.WithCallback("callbackURL", "callbackToken", ""),
 				broadcaster.WithOpReturn("0"),
 				broadcaster.WithFullstatusUpdates(false),
 				broadcaster.WithFees(1),
@@ -269,7 +271,11 @@ func TestRateBroadcasterStart(t *testing.T) {
 					return statuses, nil
 				},
 			}
+			otel.SetMeterProvider(noop.MeterProvider{})
 
+			meter := otel.Meter("test")
+
+			counter, _ := meter.Int64Counter("test-counter")
 			sut, err := broadcaster.NewRateBroadcaster(logger,
 				client,
 				ks,
@@ -279,13 +285,16 @@ func TestRateBroadcasterStart(t *testing.T) {
 				broadcaster.WithBatchSize(2),
 				broadcaster.WithSizeJitter(tc.sizeJitterMax),
 				broadcaster.WithIsTestnet(false),
-				broadcaster.WithCallback("callbackURL", "callbackToken", true),
+				broadcaster.WithCallback("callbackURL", "callbackToken", ""),
 				broadcaster.WithOpReturn("0"),
 				broadcaster.WithFullstatusUpdates(false),
 				broadcaster.WithFees(1),
 				broadcaster.WithWaitForStatus(metamorph_api.Status_SEEN_ON_NETWORK),
 				broadcaster.WithIsTestnet(true),
 				broadcaster.WithMaxInputs(1),
+				broadcaster.WithTestRunName("testrun"),
+				broadcaster.WithFailCounter(counter),
+				broadcaster.WithSuccessCounter(counter),
 			)
 			require.NoError(t, err)
 

@@ -8,17 +8,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bsv-blockchain/go-sdk/chainhash"
-	"github.com/bsv-blockchain/go-sdk/script"
-	sdkTx "github.com/bsv-blockchain/go-sdk/transaction"
-	chaincfg "github.com/bsv-blockchain/go-sdk/transaction/chaincfg"
-	"github.com/stretchr/testify/require"
-
 	"github.com/bitcoin-sv/arc/internal/broadcaster"
 	"github.com/bitcoin-sv/arc/internal/broadcaster/mocks"
 	"github.com/bitcoin-sv/arc/internal/metamorph/metamorph_api"
 	"github.com/bitcoin-sv/arc/pkg/api"
 	"github.com/bitcoin-sv/arc/pkg/keyset"
+	"github.com/bsv-blockchain/go-sdk/chainhash"
+	"github.com/bsv-blockchain/go-sdk/script"
+	sdkTx "github.com/bsv-blockchain/go-sdk/transaction"
+	chaincfg "github.com/bsv-blockchain/go-sdk/transaction/chaincfg"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBroadcaster(t *testing.T) {
@@ -105,7 +104,7 @@ func TestBroadcaster(t *testing.T) {
 		broadcaster.WithWaitForStatus(metamorph_api.Status_SEEN_ON_NETWORK),
 		broadcaster.WithFees(uint64(1)),
 		broadcaster.WithFullstatusUpdates(true),
-		broadcaster.WithCallback(api.CallbackUrl("someurl"), "token", false),
+		broadcaster.WithCallback(api.CallbackUrl("someurl"), "token", ""),
 		broadcaster.WithOpReturn("op"),
 		broadcaster.WithSizeJitter(1000),
 		broadcaster.WithIsTestnet(false),
