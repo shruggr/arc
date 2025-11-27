@@ -9,26 +9,14 @@ import (
 
 var (
 	ErrGetBlockGapsFailed = errors.New("failed to get block gaps")
+	ErrNoPeers            = errors.New("no peers available")
 )
 
-func FillGaps(p *Processor) error {
+func CheckBlockGaps(p *Processor) error {
 	const (
 		hoursPerDay   = 24
 		blocksPerHour = 6
 	)
-	i := p.peerIndex.Load()
-	defer p.peerIndex.Store(i + 1)
-
-	peers := p.pm.GetPeers()
-
-	if len(peers) == 0 {
-		return errors.New("no peers available")
-	}
-
-	i = i % int64(len(peers))
-
-	peer := peers[i]
-
 	heightRange := p.dataRetentionDays*hoursPerDay*blocksPerHour - 10
 	if heightRange <= 0 {
 		return nil
@@ -38,16 +26,40 @@ func FillGaps(p *Processor) error {
 	if err != nil {
 		return errors.Join(ErrGetBlockGapsFailed, err)
 	}
+	p.logger.Info("Block gaps", slog.Int("count", len(blockHeightGaps)))
+
+	p.resetBlockGaps()
 
 	if len(blockHeightGaps) == 0 {
 		return nil
 	}
 
-	p.resetBlockGaps()
+	for _, block := range blockHeightGaps {
+		p.blockGapsMap.Store(block.Hash, block.Height)
+	}
+
+	return nil
+}
+
+func FillGaps(p *Processor) error {
+	i := p.peerIndex.Load()
+	defer p.peerIndex.Store(i + 1)
+	peers := p.pm.GetPeers()
+
+	if len(peers) == 0 {
+		return ErrNoPeers
+	}
+
+	i = i % int64(len(peers))
+
+	peer := peers[i]
+	blockHeightGaps := p.GetBlockGaps()
+
+	if len(blockHeightGaps) == 0 {
+		return nil
+	}
 
 	for i, block := range blockHeightGaps {
-		p.blockGapsMap.Store(block.Hash, block.Height)
-
 		if i >= maxRequestBlocks {
 			continue
 		}
